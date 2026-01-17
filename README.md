@@ -4,6 +4,8 @@
 
 O **ScanM** é um sistema avançado de scanner de IPs e serviços projetado para mapear portas abertas, coletar banners, analisar certificados TLS, fingerprints JARM, títulos HTML, cabeçalhos HTTP, CPE (Common Platform Enumeration), tipos de dispositivos, latência e muito mais. Além disso, o projeto realiza **enriquecimento GeoIP** em tempo real, adicionando informações de localização geográfica (país), ASN (Autonomous System Number) e organização associada a cada IP escaneado.
 
+Recursos avançados incluem detecção de vazamentos de metadados, análise de headers de segurança, descoberta de caminhos sensíveis e fingerprinting JARM para identificar servidores de malware e configurações TLS específicas.
+
 Este projeto é ideal para análises de segurança, monitoramento de rede e estudos de magnitude global, garantindo dados precisos e atualizados sobre infraestrutura crítica.
 
 ## Funcionalidades Principais
@@ -11,6 +13,8 @@ Este projeto é ideal para análises de segurança, monitoramento de rede e estu
 - **Scanner de Portas**: Identifica portas abertas e serviços associados.
 - **Coleta de Dados**: Banners, TLS, JARM, HTML, cabeçalhos, CPE, etc.
 - **Enriquecimento GeoIP**: Integração com bancos GeoLite2 da MaxMind para país, ASN e organização.
+- **Análise de Segurança**: Detecção de headers inseguros, vazamentos de IPs internos, caminhos sensíveis expostos e configurações CORS maliciosas.
+- **Fingerprinting JARM**: Identificação de servidores de Command & Control (C2) e configurações TLS únicas.
 - **Banco de Dados**: Armazenamento eficiente em ClickHouse para consultas rápidas e escaláveis.
 - **Estatísticas em Tempo Real**: Views para análise de portas e serviços mais comuns.
 
@@ -108,6 +112,12 @@ cd scan
 
 # Instalar dependências Go
 go mod tidy
+
+# Instalar bibliotecas Go específicas
+go get github.com/segmentio/kafka-go
+go get github.com/ClickHouse/clickhouse-go/v2
+go get github.com/oschwald/geoip2-golang
+go get github.com/hdm/jarm-go
 
 # Compilar componentes
 go build ./cmd/enricher
