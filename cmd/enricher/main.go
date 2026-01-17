@@ -19,6 +19,24 @@ import (
 
 const geoIPPath = "/var/lib/GeoIP/"
 
+// Lista de User-Agents reais para rotação
+var userAgents = []string{
+	"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+	"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.114 Safari/537.36",
+	"Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:89.0) Gecko/20100101 Firefox/89.0",
+	"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.1 Safari/605.1.15",
+	"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.101 Safari/537.36",
+}
+
+var uaIndex = 0 // Para rotação sequencial
+
+// Função para obter User-Agent rotacionado
+func getNextUserAgent() string {
+	ua := userAgents[uaIndex]
+	uaIndex = (uaIndex + 1) % len(userAgents)
+	return ua
+}
+
 // Estrutura para armazenar achados de segurança
 type SecurityFindings struct {
 	InternalIPs      []string            `json:"internal_ips"`
@@ -62,7 +80,7 @@ func initGeoIP() {
 }
 
 // Função para analisar banner HTTP e headers
-func analyzeHTTPData(banner string, headers map[string]string, ip string, alpnProtocol string) SecurityFindings {
+func analyzeHTTPData(banner string, headers map[string]string, ip string, alpnProtocol string, service string) SecurityFindings {
 	findings := SecurityFindings{
 		SecurityHeaders: make(map[string]string),
 		OtherTags:       make(map[string]string),
@@ -109,14 +127,26 @@ func analyzeHTTPData(banner string, headers map[string]string, ip string, alpnPr
 		findings.OtherTags["cors_misconfig"] = "Wildcard origin"
 	}
 
-	// 6. Exposições em Aplicações (Sensitive Paths - request leve se banner indicar HTTP)
-	if strings.Contains(banner, "HTTP") {
+	// 6. Exposições em Aplicações (Sensitive Paths - request leve se banner indicar HTTP e service for web)
+	if (service == "http" || service == "https") && strings.Contains(banner, "HTTP") {
 		sensitivePaths := []string{"/.git/config", "/env", "/.vscode/", "/phpinfo.php"}
 		for _, path := range sensitivePaths {
-			url := "http://" + ip + path
-			resp, err := http.Get(url)
+			url := fmt.Sprintf("http://%s%s", ip, path)
+			if service == "https" {
+				url = fmt.Sprintf("https://%s%s", ip, path)
+			}
+			req, err := http.NewRequest("GET", url, nil)
+			if err != nil {
+				continue
+			}
+			req.Header.Set("User-Agent", getNextUserAgent())
+			client := &http.Client{Timeout: 3 * time.Second}
+			resp, err := client.Do(req)
 			if err == nil && resp.StatusCode == 200 {
 				findings.DiscoveredPaths = append(findings.DiscoveredPaths, path)
+			}
+			if resp != nil {
+				resp.Body.Close()
 			}
 		}
 	}
@@ -224,7 +254,7 @@ func processEnrichment(batcher *db.Batcher, target string) {
 	// 4. Fingerprinting Avançado
 	cpe = extractCPE(banner, service, port)
 	htmlTitle, headers = fetchHTTPData(target, port)
-	findings = analyzeHTTPData(banner, headers, ip, alpnProtocol)
+	findings = analyzeHTTPData(banner, headers, ip, alpnProtocol, service)
 	headersHash = fmt.Sprintf("%x", len(fmt.Sprintf("%v", headers))) // Simple hash
 	// JARM
 	jarm = computeJARM(target)
@@ -394,8 +424,14 @@ func fetchHTTPData(target, port string) (string, map[string]string) {
 		url = fmt.Sprintf("http://%s:%s", target, port)
 	}
 
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return "", nil
+	}
+	req.Header.Set("User-Agent", getNextUserAgent())
+
 	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Get(url)
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", nil
 	}
