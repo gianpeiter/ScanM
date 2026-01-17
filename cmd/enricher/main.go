@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -15,6 +17,7 @@ import (
 	"scan/internal/db"
 	"github.com/segmentio/kafka-go"
 	"github.com/oschwald/geoip2-golang"
+	"github.com/hdm/jarm-go"
 )
 
 const geoIPPath = "/var/lib/GeoIP/"
@@ -458,7 +461,44 @@ func fetchHTTPData(target, port string) (string, map[string]string) {
 }
 
 func computeJARM(target string) string {
-	// Placeholder para JARM - implementação completa requer 10 handshakes TLS customizados
-	// Para produção, usar https://github.com/salesforce/jarm
-	return ""
+	// Parse host and port
+	host, portStr, err := net.SplitHostPort(target)
+	if err != nil {
+		host = target
+		portStr = "443"
+	}
+
+	port := 443
+	fmt.Sscanf(portStr, "%d", &port)
+
+	// Get JARM probes
+	probes := jarm.GetProbes(host, port)
+
+	results := []string{}
+	for _, probe := range probes {
+		conn, err := net.DialTimeout("tcp", target, 2*time.Second)
+		if err != nil {
+			results = append(results, "")
+			continue
+		}
+
+		conn.SetDeadline(time.Now().Add(2 * time.Second))
+		_, err = conn.Write(jarm.BuildProbe(probe))
+		if err != nil {
+			results = append(results, "")
+			conn.Close()
+			continue
+		}
+
+		buff := make([]byte, 1024)
+		n, _ := conn.Read(buff)
+		conn.Close()
+
+		ans, _ := jarm.ParseServerHello(buff[:n], probe)
+		results = append(results, ans)
+	}
+
+	// Generate hash from results
+	hash := sha256.Sum256([]byte(strings.Join(results, ",")))
+	return hex.EncodeToString(hash[:])[:62] // Truncate to 62 chars like JARM
 }
