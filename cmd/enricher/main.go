@@ -16,6 +16,7 @@ import (
 
 	"scan/internal/db"
 	"github.com/segmentio/kafka-go"
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/oschwald/geoip2-golang"
 	"github.com/hdm/jarm-go"
 )
@@ -198,12 +199,12 @@ func main() {
 		sem <- struct{}{} // Adquire slot
 		go func(t string) {
 			defer func() { <-sem }() // Libera slot
-			processEnrichment(batcher, t)
+			processEnrichment(batcher, conn, t)
 		}(target)
 	}
 }
 
-func processEnrichment(batcher *db.Batcher, target string) {
+func processEnrichment(batcher *db.Batcher, conn clickhouse.Conn, target string) {
 	defer func() {
 		if r := recover(); r != nil {
 			// Silencioso em prod, ou log de debug
@@ -256,6 +257,7 @@ func processEnrichment(batcher *db.Batcher, target string) {
 
 	// 4. Fingerprinting Avançado
 	cpe = extractCPE(banner, service, port)
+	vulnerabilities := getCVEs(conn, cpe)
 	htmlTitle, headers = fetchHTTPData(target, port)
 	findings = analyzeHTTPData(banner, headers, ip, alpnProtocol, service)
 	headersHash = fmt.Sprintf("%x", len(fmt.Sprintf("%v", headers))) // Simple hash
@@ -278,6 +280,7 @@ func processEnrichment(batcher *db.Batcher, target string) {
 		TLSDomain:       tlsDomain,
 		TLSIssuer:       tlsIssuer,
 		CPE:             cpe,
+		Vulnerabilities: vulnerabilities,
 		JARM:            jarm,
 		HTMLTitle:       htmlTitle,
 		HeadersHash:     headersHash,
@@ -460,8 +463,30 @@ func fetchHTTPData(target, port string) (string, map[string]string) {
 	return title, headers
 }
 
+func getCVEs(conn clickhouse.Conn, cpe string) []string {
+	if cpe == "" {
+		return []string{}
+	}
+
+	ctx := context.Background()
+	query := "SELECT cves FROM scanning.cve_mappings WHERE cpe = ?"
+	rows, err := conn.Query(ctx, query, cpe)
+	if err != nil {
+		return []string{}
+	}
+	defer rows.Close()
+
+	var cves []string
+	for rows.Next() {
+		var cv []string
+		if err := rows.Scan(&cv); err == nil {
+			cves = append(cves, cv...)
+		}
+	}
+	return cves
+}
+
 func computeJARM(target string) string {
-	// Parse host and port
 	host, portStr, err := net.SplitHostPort(target)
 	if err != nil {
 		host = target

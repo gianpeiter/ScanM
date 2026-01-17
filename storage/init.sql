@@ -31,7 +31,17 @@ ENGINE = ReplacingMergeTree()
 ORDER BY (ip, port)
 PRIMARY KEY (ip, port);
 
--- 3. View para estatísticas em tempo real
+-- 4. Tabela de mapeamentos CPE -> CVE para correlação de exploits
+CREATE TABLE IF NOT EXISTS scanning.cve_mappings (
+    cpe String,
+    cves Array(String),  -- Lista de CVEs associadas ao CPE
+    severity String,     -- e.g., 'HIGH', 'MEDIUM', 'LOW'
+    description String   -- Descrição breve da vulnerabilidade
+)
+ENGINE = MergeTree()
+ORDER BY cpe;
+
+-- 5. View para estatísticas em tempo real
 CREATE OR REPLACE VIEW scanning.view_stats AS
 SELECT 
     port, 

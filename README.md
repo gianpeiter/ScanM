@@ -137,6 +137,12 @@ cargo build --release
    clickhouse-client --multiquery < storage/init.sql
    ```
 
+2. **Popular Tabela de CVEs (Opcional)**:
+   ```bash
+   clickhouse-client --multiquery < storage/populate_cves.sql
+   ```
+   - Para dados reais, baixe feeds da NVD e insira automaticamente.
+
 2. **Verificar Tabelas**:
    ```sql
    USE scanning;
