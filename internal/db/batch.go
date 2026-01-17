@@ -23,6 +23,11 @@ type ScanResult struct {
 	JARM            string   // Fingerprint TLS
 	HTMLTitle       string   // Título da página
 	HeadersHash     string   // Hash dos headers
+	// --- Novos campos de segurança ---
+	SecurityHeaders map[string]string // Map de headers de segurança
+	DiscoveredPaths []string          // Caminhos sensíveis descobertos
+	InternalIPs     []string          // IPs internos vazados
+	OtherTags       map[string]string // Outras tags (cookies, frameworks, etc.)
 	// --- Contexto ---
 	Country         string
 	ASN             uint32
@@ -79,7 +84,7 @@ func (b *Batcher) Flush() {
 	defer cancel()
 
 	// Prepare batch with all fields
-	batch, err := b.conn.PrepareBatch(ctx, "INSERT INTO results (ip, port, status, service, banner, tls_domain, tls_issuer, cpe, jarm, html_title, headers_hash, country, asn, asn_org, device_type, timestamp)")
+	batch, err := b.conn.PrepareBatch(ctx, "INSERT INTO results (ip, port, status, service, banner, tls_domain, tls_issuer, cpe, jarm, html_title, headers_hash, security_headers, discovered_paths, internal_ips, other_tags, country, asn, asn_org, device_type, timestamp)")
 	if err != nil {
 		fmt.Printf("❌ Erro ao preparar batch: %v\n", err)
 		return
@@ -87,7 +92,7 @@ func (b *Batcher) Flush() {
 
 	now := time.Now()
 	for _, r := range tempBuffer {
-		_ = batch.Append(r.IP, uint16(r.Port), r.Status, r.Service, r.Banner, r.TLSDomain, r.TLSIssuer, r.CPE, r.JARM, r.HTMLTitle, r.HeadersHash, r.Country, r.ASN, r.ASNOrg, r.DeviceType, now)
+		_ = batch.Append(r.IP, uint16(r.Port), r.Status, r.Service, r.Banner, r.TLSDomain, r.TLSIssuer, r.CPE, r.JARM, r.HTMLTitle, r.HeadersHash, r.SecurityHeaders, r.DiscoveredPaths, r.InternalIPs, r.OtherTags, r.Country, r.ASN, r.ASNOrg, r.DeviceType, now)
 	}
 
 	if err := batch.Send(); err != nil {

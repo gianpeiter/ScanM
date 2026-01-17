@@ -19,6 +19,14 @@ import (
 
 const geoIPPath = "/var/lib/GeoIP/"
 
+// Estrutura para armazenar achados de segurança
+type SecurityFindings struct {
+	InternalIPs      []string            `json:"internal_ips"`
+	SecurityHeaders  map[string]string   `json:"security_headers"`
+	DiscoveredPaths  []string            `json:"discovered_paths"`
+	OtherTags        map[string]string   `json:"other_tags"` // Para cookies, frameworks, etc.
+}
+
 // Limitador de concorrência: Não queremos abrir 1 milhão de conexões TCP locais
 var sem = make(chan struct{}, 5000)
 
@@ -51,6 +59,79 @@ func initGeoIP() {
 	} else {
 		fmt.Println("🇺🇳 Base GeoIP Country carregada com sucesso.")
 	}
+}
+
+// Função para analisar banner HTTP e headers
+func analyzeHTTPData(banner string, headers map[string]string, ip string, alpnProtocol string) SecurityFindings {
+	findings := SecurityFindings{
+		SecurityHeaders: make(map[string]string),
+		OtherTags:       make(map[string]string),
+	}
+
+	// 1. Vazamento de IPs Internos (em headers ou banner)
+	ipRegex := regexp.MustCompile(`\b(10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)\b`)
+	matches := ipRegex.FindAllString(banner, -1)
+	for _, header := range headers {
+		matches = append(matches, ipRegex.FindAllString(header, -1)...)
+	}
+	findings.InternalIPs = matches
+
+	// 2. Análise de Cookies (flags HttpOnly/Secure)
+	if cookie, ok := headers["Set-Cookie"]; ok {
+		if !strings.Contains(cookie, "HttpOnly") {
+			findings.OtherTags["cookie_insecure"] = "Missing HttpOnly"
+		}
+		if !strings.Contains(cookie, "Secure") {
+			findings.OtherTags["cookie_insecure"] += "; Missing Secure"
+		}
+	}
+
+	// 3. Descoberta de Framework (headers como X-Powered-By)
+	if framework, ok := headers["X-Powered-By"]; ok {
+		findings.OtherTags["web_framework"] = framework
+	}
+	if generator, ok := headers["X-Generator"]; ok {
+		findings.OtherTags["web_framework"] = generator
+	}
+
+	// 4. Headers de Segurança Ausentes
+	requiredHeaders := []string{"Content-Security-Policy", "Strict-Transport-Security", "X-Frame-Options"}
+	for _, h := range requiredHeaders {
+		if _, ok := headers[h]; !ok {
+			findings.SecurityHeaders[h] = "Missing"
+		} else {
+			findings.SecurityHeaders[h] = "Present"
+		}
+	}
+
+	// 5. CORS Misconfiguration
+	if cors, ok := headers["Access-Control-Allow-Origin"]; ok && cors == "*" {
+		findings.OtherTags["cors_misconfig"] = "Wildcard origin"
+	}
+
+	// 6. Exposições em Aplicações (Sensitive Paths - request leve se banner indicar HTTP)
+	if strings.Contains(banner, "HTTP") {
+		sensitivePaths := []string{"/.git/config", "/env", "/.vscode/", "/phpinfo.php"}
+		for _, path := range sensitivePaths {
+			url := "http://" + ip + path
+			resp, err := http.Get(url)
+			if err == nil && resp.StatusCode == 200 {
+				findings.DiscoveredPaths = append(findings.DiscoveredPaths, path)
+			}
+		}
+	}
+
+	// 7. Dev/Staging Environments (no título ou banner)
+	if strings.Contains(strings.ToLower(banner), "test") || strings.Contains(strings.ToLower(banner), "staging") {
+		findings.OtherTags["dev_env"] = "Detected"
+	}
+
+	// 8. ALPN Protocols
+	if alpnProtocol != "" {
+		findings.OtherTags["alpn_protocol"] = alpnProtocol
+	}
+
+	return findings
 }
 
 func main() {
@@ -102,6 +183,9 @@ func processEnrichment(batcher *db.Batcher, target string) {
 
 	var banner, tlsDomain, tlsIssuer, service, cpe, jarm, htmlTitle, headersHash, country, asnOrg, deviceType string
 	var asn uint32
+	var headers map[string]string
+	var findings SecurityFindings
+	var alpnProtocol string
 	service = "unknown"
 
 	// 1. Handshake TLS (Tenta primeiro, pois dá o Service = HTTPS logo de cara)
@@ -123,6 +207,7 @@ func processEnrichment(batcher *db.Batcher, target string) {
 			}
 			service = "https"
 		}
+		alpnProtocol = state.NegotiatedProtocol // ALPN
 		connTLS.Close()
 	}
 
@@ -138,7 +223,9 @@ func processEnrichment(batcher *db.Batcher, target string) {
 
 	// 4. Fingerprinting Avançado
 	cpe = extractCPE(banner, service, port)
-	htmlTitle, headersHash = fetchHTTPData(target, port)
+	htmlTitle, headers = fetchHTTPData(target, port)
+	findings = analyzeHTTPData(banner, headers, ip, alpnProtocol)
+	headersHash = fmt.Sprintf("%x", len(fmt.Sprintf("%v", headers))) // Simple hash
 	// JARM
 	jarm = computeJARM(target)
 	// GeoIP
@@ -150,21 +237,25 @@ func processEnrichment(batcher *db.Batcher, target string) {
 	fmt.Sscanf(port, "%d", &portInt)
 
 	batcher.Add(db.ScanResult{
-		IP:          ip,
-		Port:        portInt,
-		Status:      "enriched",
-		Service:     service,
-		Banner:      banner,
-		TLSDomain:   tlsDomain,
-		TLSIssuer:   tlsIssuer,
-		CPE:         cpe,
-		JARM:        jarm,
-		HTMLTitle:   htmlTitle,
-		HeadersHash: headersHash,
-		Country:     country,
-		ASN:         asn,
-		ASNOrg:      asnOrg,
-		DeviceType:  deviceType,
+		IP:              ip,
+		Port:            portInt,
+		Status:          "enriched",
+		Service:         service,
+		Banner:          banner,
+		TLSDomain:       tlsDomain,
+		TLSIssuer:       tlsIssuer,
+		CPE:             cpe,
+		JARM:            jarm,
+		HTMLTitle:       htmlTitle,
+		HeadersHash:     headersHash,
+		SecurityHeaders: findings.SecurityHeaders,
+		DiscoveredPaths: findings.DiscoveredPaths,
+		InternalIPs:     findings.InternalIPs,
+		OtherTags:       findings.OtherTags,
+		Country:         country,
+		ASN:             asn,
+		ASNOrg:          asnOrg,
+		DeviceType:      deviceType,
 	})
 }
 
@@ -291,9 +382,9 @@ func enrichLocation(ipStr string) (string, string, uint32) {
 	return city.Country.IsoCode, asn.AutonomousSystemOrganization, uint32(asn.AutonomousSystemNumber)
 }
 
-func fetchHTTPData(target, port string) (string, string) {
+func fetchHTTPData(target, port string) (string, map[string]string) {
 	if port != "80" && port != "443" && port != "8080" {
-		return "", ""
+		return "", nil
 	}
 
 	url := fmt.Sprintf("http://%s", target)
@@ -306,7 +397,7 @@ func fetchHTTPData(target, port string) (string, string) {
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Get(url)
 	if err != nil {
-		return "", ""
+		return "", nil
 	}
 	defer resp.Body.Close()
 
@@ -321,14 +412,13 @@ func fetchHTTPData(target, port string) (string, string) {
 		title = matches[1]
 	}
 
-	// Hash dos headers (simples, usar MD5)
-	headers := ""
+	// Retornar headers como map
+	headers := make(map[string]string)
 	for k, v := range resp.Header {
-		headers += k + ":" + strings.Join(v, ",") + "\n"
+		headers[k] = strings.Join(v, ", ")
 	}
-	headersHash := fmt.Sprintf("%x", len(headers)) // Placeholder, implementar hash real
 
-	return title, headersHash
+	return title, headers
 }
 
 func computeJARM(target string) string {
