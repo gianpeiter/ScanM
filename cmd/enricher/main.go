@@ -469,7 +469,7 @@ func getCVEs(conn clickhouse.Conn, cpe string) []string {
 	}
 
 	ctx := context.Background()
-	query := "SELECT cves FROM scanning.cve_mappings WHERE cpe = ?"
+	query := "SELECT cve FROM scanning.cve_mappings WHERE cpe = ?"
 	rows, err := conn.Query(ctx, query, cpe)
 	if err != nil {
 		return []string{}
@@ -478,9 +478,9 @@ func getCVEs(conn clickhouse.Conn, cpe string) []string {
 
 	var cves []string
 	for rows.Next() {
-		var cv []string
-		if err := rows.Scan(&cv); err == nil {
-			cves = append(cves, cv...)
+		var cve string
+		if err := rows.Scan(&cve); err == nil {
+			cves = append(cves, cve)
 		}
 	}
 	return cves

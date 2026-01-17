@@ -31,15 +31,18 @@ ENGINE = ReplacingMergeTree()
 ORDER BY (ip, port)
 PRIMARY KEY (ip, port);
 
--- 4. Tabela de mapeamentos CPE -> CVE para correlação de exploits
+-- 4. Tabela de mapeamentos CPE -> CVE para correlação de exploits (modelo profissional: 1 CVE por linha)
 CREATE TABLE IF NOT EXISTS scanning.cve_mappings (
     cpe String,
-    cves Array(String),  -- Lista de CVEs associadas ao CPE
+    cve String,
     severity String,     -- e.g., 'HIGH', 'MEDIUM', 'LOW'
-    description String   -- Descrição breve da vulnerabilidade
+    cvss_score Float32,  -- Pontuação CVSS (0-10)
+    exploit_available UInt8, -- 1 se exploit público disponível, 0 caso contrário
+    description String,  -- Descrição breve da vulnerabilidade
+    published_date Date  -- Data de publicação da CVE
 )
 ENGINE = MergeTree()
-ORDER BY cpe;
+ORDER BY (cpe, cve);
 
 -- 5. View para estatísticas em tempo real
 CREATE OR REPLACE VIEW scanning.view_stats AS
