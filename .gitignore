@@ -1,0 +1,42 @@
+# Binários compilados
+enricher
+main
+scheduler
+worker
+
+# Rust build artifacts
+src/scanner/target/
+
+# Go modules (se não quiser rastrear go.sum, descomente)
+# go.sum
+
+# Arquivos de ambiente
+.env
+.env.local
+
+# Logs
+*.log
+logs/
+
+# Arquivos temporários
+*.tmp
+*.swp
+*~
+
+# IDEs
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Sistema operacional
+.DS_Store
+Thumbs.db
+
+# Docker (se aplicável)
+docker-compose.override.yml
+.dockerignore
+
+# Outros
+node_modules/  # Se houver JS
+__pycache__/   # Se houver Python

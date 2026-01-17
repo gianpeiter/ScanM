@@ -1,0 +1,23 @@
+sources:
+  kafka_hits:
+    type: kafka
+    bootstrap_servers: "kafka:9092"
+    topics: ["raw-hits"]
+
+transforms:
+  geoip_enrich:
+    type: geoip
+    inputs: ["kafka_hits"]
+    database: "/var/lib/GeoIP2-City.mmdb"
+    field: "ip"
+
+sinks:
+  clickhouse_storage:
+    type: clickhouse
+    inputs: ["geoip_enrich"]
+    endpoint: "http://clickhouse:8123"
+    database: "scanning"
+    table: "results"
+    compression: gzip
+    batch:
+      max_bytes: 10485760 # 10MB por flush para performance máxima

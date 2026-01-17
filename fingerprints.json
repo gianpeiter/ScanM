@@ -1,0 +1,42 @@
+[
+  {
+    "port": 22,
+    "banner_contains": "SSH",
+    "cpe": "cpe:2.3:a:openbsd:openssh"
+  },
+  {
+    "port": 80,
+    "banner_contains": "Apache",
+    "cpe": "cpe:2.3:a:apache:http_server"
+  },
+  {
+    "port": 80,
+    "banner_contains": "nginx",
+    "cpe": "cpe:2.3:a:nginx:nginx"
+  },
+  {
+    "port": 443,
+    "banner_contains": "Apache",
+    "cpe": "cpe:2.3:a:apache:http_server"
+  },
+  {
+    "port": 443,
+    "banner_contains": "nginx",
+    "cpe": "cpe:2.3:a:nginx:nginx"
+  },
+  {
+    "port": 3389,
+    "banner_contains": "NTLM",
+    "cpe": "cpe:2.3:o:microsoft:windows"
+  },
+  {
+    "port": 3389,
+    "banner_contains": "RDP",
+    "cpe": "cpe:2.3:o:microsoft:windows"
+  },
+  {
+    "port": 21,
+    "banner_contains": "FTP",
+    "cpe": "cpe:2.3:a:filezilla:filezilla_server"
+  }
+]
